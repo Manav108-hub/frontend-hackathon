@@ -72,6 +72,15 @@ export interface DeliveryStatus {
 }
 
 export interface AIAnalyticsResult {
+  salesQuantity: any;
+  stockLevels: any;
+  stockoutRisk: any;
+  salesVolume: any;
+  accuracy: {
+    salesModel?: number;
+    inventoryModel?: number;
+    overallAccuracy?: number;
+  };
   predictions: Array<{
     id: string;
     type: string;
@@ -102,6 +111,8 @@ export interface DashboardStats {
 }
 
 export interface SalesForecast {
+  salesQuantity: any;
+  salesVolume: any;
   forecast: Array<{
     date: string;
     predictedSales: number;

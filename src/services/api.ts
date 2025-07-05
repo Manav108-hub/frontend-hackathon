@@ -1,4 +1,11 @@
-import axios, { AxiosInstance, AxiosResponse, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  AxiosInstance,
+  AxiosResponse,
+  AxiosError,
+  InternalAxiosRequestConfig,
+  AxiosRequestConfig
+} from 'axios';
+
 import {
   ApiResponse,
   User,
@@ -14,40 +21,51 @@ import {
 
 class ApiService {
   private readonly api: AxiosInstance;
-  private readonly maxRetryAttempts = 3;
-  private retryCount = 0;
+  private readonly maxRetries: number = 3;
+  private readonly retryDelays: number[] = [1000, 3000, 5000]; // Exponential backoff
+  private readonly requestQueue: Array<() => void> = [];
+  private isQueueProcessing: boolean = false;
 
   public readonly aiAnalytics = {
-    getComprehensiveAnalytics: (): Promise<ApiResponse<AIAnalyticsResult>> =>
-      this.handleRequest<AIAnalyticsResult>(this.api.get('/analytics/ai')),
+    getComprehensiveAnalytics: (config?: AxiosRequestConfig):
+      Promise<ApiResponse<AIAnalyticsResult>> =>
+        this.handleRequest<AIAnalyticsResult>(this.api.get('/analytics/ai', config)),
 
-    analyzeSalesQuantity: (days: number = 30): Promise<ApiResponse<SalesForecast>> =>
-      this.handleRequest<SalesForecast>(this.api.get(`/analytics/sales/forecast?days=${days}`)),
+    analyzeSalesQuantity: (days: number = 30, config?: AxiosRequestConfig):
+      Promise<ApiResponse<SalesForecast>> =>
+        this.handleRequest<SalesForecast>(
+          this.api.get(`/analytics/sales/forecast?days=${days}`, config)
+        ),
 
-    analyzeShelfImage: (imageFile: File): Promise<ApiResponse<any>> => {
-      const formData = new FormData();
-      formData.append('image', imageFile);
-      return this.handleRequest<any>(
-        this.api.post('/analytics/image', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 60000  // Longer timeout for image uploads
-        })
-      );
-    }
+    analyzeShelfImage: (imageFile: File, config?: AxiosRequestConfig):
+      Promise<ApiResponse<any>> => {
+        const formData = new FormData();
+        formData.append('image', imageFile);
+        return this.handleRequest<any>(
+          this.api.post('/analytics/image', formData, {
+            ...config,
+            headers: {
+              ...config?.headers,
+              'Content-Type': 'multipart/form-data'
+            },
+            timeout: 60000
+          })
+        );
+      }
   };
 
   constructor() {
-  this.api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
-    headers: { 'Content-Type': 'application/json' },
-    timeout: 30000, // Increase to 30 seconds
-    withCredentials: true,
-  });
-  this.setupInterceptors();
-}
+    this.api = axios.create({
+      baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 30000,
+      withCredentials: true
+    });
+
+    this.setupInterceptors();
+  }
 
   private setupInterceptors(): void {
-    // Request interceptor for auth token
     this.api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       if (token) {
@@ -57,64 +75,97 @@ class ApiService {
       return config;
     });
 
-    // Response interceptor for error handling
     this.api.interceptors.response.use(
       (response: AxiosResponse) => response,
       async (error: AxiosError<ApiResponse<unknown>>) => {
-        const originalRequest = error.config;
-        
-        // Handle rate limiting (429)
-        if (error.response?.status === 429 && this.retryCount < this.maxRetryAttempts) {
-          this.retryCount++;
-          
-          const retryAfter = error.response.headers['retry-after'] || 5;
-          await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-          
-          return this.api(originalRequest!);
+        const originalConfig = error.config as InternalAxiosRequestConfig & { _retryCount?: number };
+
+        originalConfig._retryCount = originalConfig._retryCount || 0;
+
+        if (this.shouldRetry(error) && originalConfig._retryCount < this.maxRetries) {
+          originalConfig._retryCount++;
+          const delay = this.retryDelays[originalConfig._retryCount - 1];
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.api(originalConfig);
         }
-        
-        // Reset retry counter on non-429 errors
-        this.retryCount = 0;
-        
-        // Handle 401 Unauthorized
-        if (error.response?.status === 401 && typeof window !== 'undefined') {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
-        }
-        
-        return Promise.reject(this.normalizeError(error));
+
+        return this.handleSpecificErrors(error);
       }
     );
   }
 
+  private shouldRetry(error: AxiosError): boolean {
+    return (
+      !error.response ||
+      error.code === 'ECONNABORTED' ||
+      error.response.status === 429 ||
+      error.response.status === 408 ||
+      error.response.status >= 500
+    );
+  }
+
+  private handleSpecificErrors(error: AxiosError): Promise<never> {
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+
+    return Promise.reject(this.normalizeError(error as AxiosError<ApiResponse<unknown>>));
+  }
+
   private normalizeError(error: AxiosError<ApiResponse<unknown>>): Error {
-    // Handle timeout errors
     if (error.code === 'ECONNABORTED') {
       return new Error('Request timed out. Please try again later.');
     }
-    
-    // Handle network errors
+
     if (!error.response) {
       return new Error('Network error. Please check your connection.');
     }
-    
-    // Handle server errors with response data
+
     if (error.response.data) {
       const responseData = error.response.data;
       return new Error(
-        (responseData as { error?: { message?: string } })?.error?.message ||
-        (responseData as { error?: string })?.error ||
-        (responseData as { message?: string })?.message ||
+        (responseData as any)?.error?.message ||
+        (responseData as any)?.error ||
+        (responseData as any)?.message ||
         `Server error: ${error.response.status}`
       );
     }
-    
-    // Fallback to generic error
+
     return new Error(error.message || 'An unexpected error occurred');
   }
 
+  private async enqueueRequest<T>(request: () => Promise<ApiResponse<T>>): Promise<ApiResponse<T>> {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push(async () => {
+        try {
+          const result = await request();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
 
-  // Auth methods
+      this.processQueue();
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.isQueueProcessing || this.requestQueue.length === 0) return;
+
+    this.isQueueProcessing = true;
+
+    try {
+      const task = this.requestQueue.shift();
+      if (task) await task();
+    } finally {
+      this.isQueueProcessing = false;
+      this.processQueue();
+    }
+  }
+
+  // ========== AUTH ==========
+
   public async register(
     email: string,
     name: string,
@@ -135,141 +186,127 @@ class ApiService {
     );
   }
 
-  // Product methods
-  public async getProducts(): Promise<ApiResponse<Product[]>> {
-    return this.handleRequest<Product[]>(this.api.get('/product'));
+  // ========== PRODUCT ==========
+
+  public async getProducts(config?: AxiosRequestConfig): Promise<ApiResponse<Product[]>> {
+    return this.handleRequest<Product[]>(this.api.get('/product', config));
   }
 
-  public async getProduct(productId: string): Promise<ApiResponse<Product>> {
+  public async getProduct(productId: string, config?: AxiosRequestConfig): Promise<ApiResponse<Product>> {
     return this.handleRequest<Product>(
-      this.api.get(`/product/${productId}`)
+      this.api.get(`/product/${productId}`, config)
     );
   }
 
   public async createProduct(
-    product: Omit<Product, 'id'>
+    product: Omit<Product, 'id'>,
+    config?: AxiosRequestConfig
   ): Promise<ApiResponse<Product>> {
     return this.handleRequest<Product>(
-      this.api.post('/product', product)
+      this.api.post('/product', product, config)
     );
   }
 
-  // Order methods
-  public async getOrders(): Promise<ApiResponse<Order[]>> {
-    return this.handleRequest<Order[]>(this.api.get('/orders'));
+  // ========== ORDER ==========
+
+  public async getOrders(config?: AxiosRequestConfig): Promise<ApiResponse<Order[]>> {
+    return this.handleRequest<Order[]>(this.api.get('/orders', config));
   }
 
-  public async getOrder(orderId: string): Promise<ApiResponse<Order>> {
+  public async getOrder(orderId: string, config?: AxiosRequestConfig): Promise<ApiResponse<Order>> {
     return this.handleRequest<Order>(
-      this.api.get(`/orders/${orderId}`)
+      this.api.get(`/orders/${orderId}`, config)
     );
   }
 
   public async createOrder(
-    order: Omit<Order, 'id' | 'customer_id' | 'created_at'>
+    order: Omit<Order, 'id' | 'customer_id' | 'created_at'>,
+    config?: AxiosRequestConfig
   ): Promise<ApiResponse<Order>> {
     return this.handleRequest<Order>(
-      this.api.post('/orders', order)
+      this.api.post('/orders', order, config)
     );
   }
 
-  // Inventory methods
-  public async getInventory(): Promise<ApiResponse<InventoryUpdate[]>> {
+  // ========== INVENTORY ==========
+
+  public async getInventory(config?: AxiosRequestConfig): Promise<ApiResponse<InventoryUpdate[]>> {
     return this.handleRequest<InventoryUpdate[]>(
-      this.api.get('/inventory')
+      this.api.get('/inventory', config)
     );
   }
 
-  // Delivery methods
-  public async getDeliveries(): Promise<ApiResponse<DeliveryStatus[]>> {
+  // ========== DELIVERY ==========
+
+  public async getDeliveries(config?: AxiosRequestConfig): Promise<ApiResponse<DeliveryStatus[]>> {
     return this.handleRequest<DeliveryStatus[]>(
-      this.api.get('/delivery')
+      this.api.get('/delivery', config)
     );
   }
 
-  public async getDelivery(orderId: string): Promise<ApiResponse<DeliveryStatus>> {
+  public async getDelivery(orderId: string, config?: AxiosRequestConfig): Promise<ApiResponse<DeliveryStatus>> {
     return this.handleRequest<DeliveryStatus>(
-      this.api.get(`/delivery/${orderId}`)
+      this.api.get(`/delivery/${orderId}`, config)
     );
   }
 
-  // Analytics methods
-  public async getSalesAnalytics(days: number = 7): Promise<ApiResponse<SalesData[]>> {
+  // ========== ANALYTICS ==========
+
+  public async getSalesAnalytics(days: number = 7, config?: AxiosRequestConfig): Promise<ApiResponse<SalesData[]>> {
     return this.handleRequest<SalesData[]>(
-      this.api.get(`/analytics/sales?days=${days}`)
+      this.api.get(`/analytics/sales?days=${days}`, config)
     );
   }
 
-  // AI Analytics methods
-  public async getAIAnalytics(): Promise<ApiResponse<AIAnalyticsResult>> {
-    return this.handleRequest<AIAnalyticsResult>(
-      this.api.get('/analytics/ai')
-    );
-  }
-
-  public async getSalesForecast(): Promise<ApiResponse<SalesForecast>> {
-    return this.handleRequest<SalesForecast>(
-      this.api.get('/analytics/sales/forecast')
-    );
-  }
-
-  public async analyzeShelfImage(imageFile: File): Promise<ApiResponse<any>> {
-    const formData = new FormData();
-    formData.append('image', imageFile);
-
-    return this.handleRequest<any>(
-      this.api.post('/analytics/image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-    );
-  }
-
-  // Dashboard methods
-  public async getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
+  public async getDashboardStats(config?: AxiosRequestConfig): Promise<ApiResponse<DashboardStats>> {
     return this.handleRequest<DashboardStats>(
-      this.api.get('/admin/dashboard')
+      this.api.get('/admin/dashboard', config)
     );
   }
 
-  // Simulation methods
-  public async startSimulation(): Promise<ApiResponse<{ message: string }>> {
+  // ========== SIMULATION ==========
+
+  public async startSimulation(config?: AxiosRequestConfig): Promise<ApiResponse<{ message: string }>> {
     return this.handleRequest<{ message: string }>(
-      this.api.post('/simulation/start')
+      this.api.post('/simulation/start', {}, config)
     );
   }
 
-  public async seedData(): Promise<ApiResponse<{ message: string }>> {
+  public async seedData(config?: AxiosRequestConfig): Promise<ApiResponse<{ message: string }>> {
     return this.handleRequest<{ message: string }>(
-      this.api.post('/simulation/seed')
+      this.api.post('/simulation/seed', {}, config)
     );
   }
 
-  // Health check
-  public async healthCheck(): Promise<{ status: string; timestamp: string }> {
-    const response = await this.api.get('/health');
+  // ========== HEALTH CHECK ==========
+
+  public async healthCheck(config?: AxiosRequestConfig): Promise<{ status: string; timestamp: string }> {
+    const response = await this.api.get('/health', config);
     return response.data;
   }
 
-  // Generic request handler with proper typing
+  // ========== HANDLE REQUEST ==========
+
   private async handleRequest<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promise<ApiResponse<T>> {
     try {
+      const startTime = Date.now();
       const response = await promise;
+      const duration = Date.now() - startTime;
+
+      console.debug(`API ${response.config.url} took ${duration}ms`);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        // Handle Axios-specific errors
-        if (error.response) {
-          console.error('API Error Response:', {
-            status: error.response.status,
-            data: error.response.data
-          });
-        } else if (error.request) {
-          console.error('API Request Error:', error.request);
-        }
+        console.error(`API Error: ${error.message}`, {
+          code: error.code,
+          status: error.response?.status,
+          url: error.config?.url,
+          method: error.config?.method
+        });
       } else {
         console.error('Non-Axios Error:', error);
       }
-      
+
       throw error;
     }
   }
