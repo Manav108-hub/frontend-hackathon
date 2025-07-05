@@ -1,6 +1,6 @@
 'use client';
 import { Button } from '@/components/ui/button';
-import { Package, Truck, BarChart3, ShoppingCart, Play, Database, Brain, TrendingUp } from 'lucide-react';
+import { Package, Truck, BarChart3, ShoppingCart, Play, Database, Brain } from 'lucide-react';
 
 interface DashboardNavProps {
   activeTab: string;
