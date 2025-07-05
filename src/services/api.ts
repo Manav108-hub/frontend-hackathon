@@ -19,6 +19,12 @@ import {
   SalesForecast
 } from '@/types';
 
+interface ImageAnalysisResult {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
 class ApiService {
   private readonly api: AxiosInstance;
   private readonly maxRetries: number = 3;
@@ -38,10 +44,10 @@ class ApiService {
         ),
 
     analyzeShelfImage: (imageFile: File, config?: AxiosRequestConfig):
-      Promise<ApiResponse<any>> => {
+      Promise<ApiResponse<ImageAnalysisResult>> => {
         const formData = new FormData();
         formData.append('image', imageFile);
-        return this.handleRequest<any>(
+        return this.handleRequest<ImageAnalysisResult>(
           this.api.post('/analytics/image', formData, {
             ...config,
             headers: {
@@ -123,13 +129,22 @@ class ApiService {
     }
 
     if (error.response.data) {
-      const responseData = error.response.data;
-      return new Error(
-        (responseData as any)?.error?.message ||
-        (responseData as any)?.error ||
-        (responseData as any)?.message ||
-        `Server error: ${error.response.status}`
-      );
+      const responseData = error.response.data as {
+        error?: { message?: string } | string;
+        message?: string;
+      };
+      
+      let errorMessage = `Server error: ${error.response.status}`;
+      
+      if (typeof responseData.error === 'object' && responseData.error?.message) {
+        errorMessage = responseData.error.message;
+      } else if (typeof responseData.error === 'string') {
+        errorMessage = responseData.error;
+      } else if (responseData.message) {
+        errorMessage = responseData.message;
+      }
+      
+      return new Error(errorMessage);
     }
 
     return new Error(error.message || 'An unexpected error occurred');

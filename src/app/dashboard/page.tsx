@@ -12,14 +12,13 @@ import AIAnalyticsDashboard from '@/components/dashboard/AIAnalyticsDashboard';
 import SalesForecastChart from '@/components/dashboard/SalesChart';
 import { apiService } from '@/services/api';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DashboardStats } from '@/types';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('inventory');
   const [message, setMessage] = useState('');
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -40,8 +39,6 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error('Failed to fetch dashboard stats:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
