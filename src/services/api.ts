@@ -62,7 +62,7 @@ class ApiService {
 
   constructor() {
     this.api = axios.create({
-      baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://backend-hackathon-xt2p.onrender.com',
+      baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://backend-hackathon-xt2p.onrender.com/api',
       headers: { 'Content-Type': 'application/json' },
       timeout: 30000,
       withCredentials: true
