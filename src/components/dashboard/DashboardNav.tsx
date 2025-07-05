@@ -16,7 +16,7 @@ export default function DashboardNav({ activeTab, onTabChange, onStartSimulation
     { id: 'deliveries', label: 'Deliveries', icon: Truck },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'ai-analytics', label: 'AI Analytics', icon: Brain },
-    { id: 'forecast', label: 'Sales Forecast', icon: TrendingUp },
+    // { id: 'forecast', label: 'Sales Forecast', icon: TrendingUp },
   ];
 
   return (
