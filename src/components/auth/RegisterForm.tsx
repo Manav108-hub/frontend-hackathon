@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from
-'@/components/ui/card';
+  '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiService } from '@/services/api';
 
@@ -29,13 +29,20 @@ export default function RegisterForm() {
     try {
       const response = await apiService.register(email, name, password, adminKey || undefined);
       if (response.success) {
-        setSuccess('Registration successful! You can now login.');
+        setSuccess('Registration successful! You can now log in.');
         setTimeout(() => router.push('/login'), 2000);
       } else {
         setError(response.error || 'Registration failed');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Registration failed');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else if (err && typeof err === 'object' && 'response' in err) {
+        const errorResponse = err as { response?: { data?: { error?: string } } };
+        setError(errorResponse.response?.data?.error || 'Registration failed');
+      } else {
+        setError('Registration failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -105,5 +112,5 @@ export default function RegisterForm() {
         </form>
       </CardContent>
     </Card>
-);
+  );
 }

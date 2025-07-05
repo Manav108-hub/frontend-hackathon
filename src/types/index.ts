@@ -1,6 +1,7 @@
 // types/index.ts - Fixed version without any types
 
 export interface ApiResponse<T> {
+  token?: string;
   success: boolean;
   data?: T;
   error?: string;
