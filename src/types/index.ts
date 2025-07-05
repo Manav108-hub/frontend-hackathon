@@ -1,4 +1,4 @@
-// Add these new interfaces to your existing types/index.ts file
+// types/index.ts - Fixed version without any types
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -39,8 +39,7 @@ export interface Order {
   shipping_address?: string;
 }
 
-// ========== NEW TYPES FOR BACKEND INTEGRATION ==========
-
+// ========== SALES AND INVENTORY TYPES ==========
 export interface SalesData {
   id?: string;
   product_id: string;
@@ -68,39 +67,74 @@ export interface DeliveryStatus {
   status: 'pending' | 'picked_up' | 'on_the_way' | 'delivered';
   timestamp: string;
   driver_id: string;
-  estimated_arrival?: string; // Add this optional field
+  estimated_arrival?: string;
+}
+
+// ========== AI ANALYTICS TYPES ==========
+export interface SalesQuantityPrediction {
+  prediction: number;
+  confidence: number;
+  factors: string[];
+}
+
+export interface StockLevelsPrediction {
+  prediction: number;
+  status: 'optimal' | 'low' | 'critical';
+  recommendation: string;
+}
+
+export interface StockoutRiskPrediction {
+  probability: number;
+  timeline: string;
+  preventionActions: string[];
+}
+
+export interface SalesVolumePrediction {
+  prediction: number;
+  trend: 'increasing' | 'decreasing' | 'stable';
+  seasonalFactors: string[];
+}
+
+export interface ModelAccuracy {
+  salesModel: number;
+  inventoryModel: number;
+  overallAccuracy: number;
+}
+
+export interface DetectedProduct {
+  name: string;
+  confidence: number;
+  quantity: number;
+}
+
+export interface ImageAnalysisResult {
+  detectedProducts?: DetectedProduct[];
+  shelfOccupancy: number;
+  visualQualityScore: number;
+}
+
+export interface PredictionRecord {
+  id: string;
+  type: string;
+  product_id?: string;
+  created_at: string;
+  prediction: SalesQuantityPrediction | StockLevelsPrediction | StockoutRiskPrediction | SalesVolumePrediction;
+}
+
+export interface ImageAnalysisRecord {
+  id: string;
+  result: ImageAnalysisResult;
+  created_at: string;
 }
 
 export interface AIAnalyticsResult {
-  salesQuantity: any;
-  stockLevels: any;
-  stockoutRisk: any;
-  salesVolume: any;
-  accuracy: {
-    salesModel?: number;
-    inventoryModel?: number;
-    overallAccuracy?: number;
-  };
-  predictions: Array<{
-    id: string;
-    type: string;
-    product_id?: string;
-    created_at: string;
-    prediction: any;
-  }>;
-  imageAnalyses: Array<{
-    id: string;
-    result: {
-      detectedProducts?: Array<{
-        name: string;
-        confidence: number;
-        quantity: number;
-      }>;
-      shelfOccupancy: number;
-      visualQualityScore: number;
-    };
-    created_at: string;
-  }>;
+  salesQuantity: SalesQuantityPrediction;
+  stockLevels: StockLevelsPrediction;
+  stockoutRisk: StockoutRiskPrediction;
+  salesVolume: SalesVolumePrediction;
+  accuracy: ModelAccuracy;
+  predictions: PredictionRecord[];
+  imageAnalyses: ImageAnalysisRecord[];
   insights: string[];
 }
 
@@ -110,14 +144,16 @@ export interface DashboardStats {
   totalRevenue: number;
 }
 
+export interface ForecastPoint {
+  date: string;
+  predictedSales: number;
+  confidence: number;
+}
+
 export interface SalesForecast {
-  salesQuantity: any;
-  salesVolume: any;
-  forecast: Array<{
-    date: string;
-    predictedSales: number;
-    confidence: number;
-  }>;
+  salesQuantity: SalesQuantityPrediction;
+  salesVolume: SalesVolumePrediction;
+  forecast: ForecastPoint[];
   insights: string[];
   accuracy: number;
 }
